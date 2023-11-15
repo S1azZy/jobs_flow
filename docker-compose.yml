@@ -1,0 +1,90 @@
+version: "3.8"
+
+### Volumes
+
+x-volumes-app: &volumes-app
+  - .:/app
+  - bundle:/app/vendor/bundle
+  - .bashrc:/home/dockeruser/.bashrc:delegated
+  - .irbrc:/home/dockeruser/.irbrc
+  - .bash_history:/home/dockeruser/.bash_history
+  - .irb_history:/home/dockeruser/.irb_history
+
+x-volumes-db: &volumes-db
+  - postgres-data:/var/lib/postgresql/data
+
+### ENV
+x-env-db: &env-db
+  POSTGRES_DB: jobs_flow_development
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+### Healthcheck
+
+x-healthcheck-intervals: &healthcheck-intervals
+  interval: 10s
+  timeout: 5s
+  retries: 3
+
+### Service-templates
+
+x-app-base-service: &app-base-service
+  platform: linux/amd64
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      - APP_USER_UID=${APP_USER_UID}
+      - APP_GROUP_GID=${APP_GROUP_GID}
+  image: jobs_flow
+  depends_on:
+    - db
+  volumes: *volumes-app
+  privileged: true
+  stdin_open: true
+  tty: true
+  env_file:
+    - .env
+
+### Services
+
+services:
+  web:
+    <<: *app-base-service
+    hostname: jobs_flow
+    container_name: jobs_flow_rails
+    command: bundle exec rails server -p 3000 -b '0.0.0.0'
+    ports:
+      - "3000:3000"
+    healthcheck:
+      <<: *healthcheck-intervals
+      test: ["CMD", "wget", "http://localhost:3000/health_check/all.json", "--spider"]
+    networks:
+      - external
+      - internal
+
+  db:
+    platform: linux/amd64
+    container_name: jobs_flow_postgres
+    image: postgres:16.1-alpine3.18
+    restart: unless-stopped
+    environment: *env-db
+    ports:
+      - "5432:5432"
+    volumes: *volumes-db
+    networks:
+      - internal
+      - external
+  ###
+
+networks:
+  internal:
+    driver: bridge
+    internal: true
+  external:
+    driver: bridge
+
+volumes:
+  bundle:
+    driver: local
+  postgres-data:
